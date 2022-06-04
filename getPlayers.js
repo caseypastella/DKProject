@@ -1,18 +1,32 @@
 var client = require('./connection.js');
-const fetch = require('node-fetch');
+const axios = require('axios'); 
+require('array.prototype.flatmap').shim();
 
+
+
+async function grabContests() {
+    try {
+        const contests = await axios.get('https://www.draftkings.com/lobby/getcontests?sport=MLB');
+        const contestsJson = await contestsJson.json(); 
+
+
+    }
+    catch (error) {
+        console.log(error); 
+    }
+}
 async function getDataMLB() {
     try {
     //Get the contests
-    const contestsResponse = await fetch('https://www.draftkings.com/lobby/getcontests?sport=MLB');
-    const contestsJson = await contestsResponse.json();
-    var indexCount = 0; 
+    const contestsResponse = await axios.get('https://www.draftkings.com/lobby/getcontests?sport=MLB');
+    //const contestsJson = await contestsResponse.json();
+    var totalIndexed = 0; 
 
     //Loop through all contests and build a list of the unique draft groups
     let groupIdList = [];
-    contestsJson['Contests'].forEach(contest => {
-        if (!groupIdList.includes(contest['dg'])) {
-            groupIdList.push(contest['dg'])
+    contestsResponse.data.Contests.forEach(contest => {
+        if (!groupIdList.includes(contest.dg)) {
+            groupIdList.push(contest.dg)
         }
     });
 
@@ -22,36 +36,23 @@ async function getDataMLB() {
         console.log(groupId);
         console.log('\n')
 
-        const draftablePlayersResponse = await fetch('https://api.draftkings.com/draftgroups/v1/draftgroups/' + groupId + '/draftables');
-        const draftableplayersJson = await draftablePlayersResponse.json();
-
-        //Nice! Now we have the players so let's just console.log them as a simple example
-        draftableplayersJson['draftables'].forEach(async player => { 
-            indexCount++; 
-            await client.index({
-                index: 'dktest',
-                id: player['draftableId'],
-                body: {
-                    "FirstName": player['firstName'],
-                    "LastName": player['lastName'],
-                    "DisplayName": player['displayName'],
-                    "PlayerId": player['playerId'],
-                    "Position": player['position'],
-                    "Salary": player['salary'],
-                    "Status": player['status'],
-                    "IsSwappable": player['isSwappable'],
-                    "isDisabled": player['isDisabled'],
-                    "Team": player['teamAbbreviation']
+        const draftablePlayersResponse = await axios.get('https://api.draftkings.com/draftgroups/v1/draftgroups/' + groupId + '/draftables');
+        //const draftableplayersJson = await draftablePlayersResponse.json();
+        totalIndexed += Object.keys(draftablePlayersResponse.data.draftables).length;
+        //const dataToIndex = draftablePlayersResponse.data.draftables.flatMap(doc => [{ index: {_index: 'dkmlbplayers'}}, doc])
+        const bulkResponse = await client.helpers.bulk({
+            datasource: draftablePlayersResponse.data.draftables,
+            onDocument (doc) {
+                return {
+                    index: { _index: 'dkmlbplayers', _id: doc.PlayerId}
                 }
-            },function(err,resp,status) {
-                console.log(resp); 
-                console.log(status);
-                console.log(err); 
-            });
-        });
+            }
+        })
+        console.log(bulkResponse);
+        const count = await client.count({ index: 'dkmlbplayers' })
+        console.log('Documents currently in index', count)
+        console.log('Total Documents that were just indexed', totalIndexed)
     }
-
-    console.log('Success! number of docs indexed is:', indexCount);
 
 } catch (error) {
     console.log(error);
@@ -60,121 +61,91 @@ async function getDataMLB() {
 
 async function getDataNBA() {
     try {
-    //Get the contests
-    const contestsResponse = await fetch('https://www.draftkings.com/lobby/getcontests?sport=NBA');
-    const contestsJson = await contestsResponse.json();
-    var indexCount = 0; 
-    //Loop through all contests and build a list of the unique draft groups
-    let groupIdList = [];
-    contestsJson['Contests'].forEach(contest => {
-        if (!groupIdList.includes(contest['dg'])) {
-            groupIdList.push(contest['dg'])
-        }
-    });
-
-    //For each draft group, grab the draftables by replacing the parameter in the URL with the correct group Id
-    for (const groupId of groupIdList) {
-        console.log('Players for GroupId:')
-        console.log(groupId);
-        console.log('\n')
-
-        const draftablePlayersResponse = await fetch('https://api.draftkings.com/draftgroups/v1/draftgroups/' + groupId + '/draftables');
-        const draftableplayersJson = await draftablePlayersResponse.json();
-
-        //Nice! Now we have the players so let's just console.log them as a simple example
-        draftableplayersJson['draftables'].forEach(async player => { 
-            await client.index({
-                index: 'dknbaplayers',
-                id: player['draftableId'],
-                body: {
-                    "FirstName": player['firstName'],
-                    "LastName": player['lastName'],
-                    "DisplayName": player['displayName'],
-                    "PlayerId": player['playerId'],
-                    "Position": player['position'],
-                    "Salary": player['salary'],
-                    "Status": player['status'],
-                    "IsSwappable": player['isSwappable'],
-                    "isDisabled": player['isDisabled'],
-                    "Team": player['teamAbbreviation']
-                }
-            }).then(res => {
-                //console.log(res);
-                indexCount++;
-            })
-            .catch(error => {
-                console.error(error); 
-            });
-            
+        //Get the contests
+        const contestsResponse = await axios.get('https://www.draftkings.com/lobby/getcontests?sport=NBA');
+        //const contestsJson = await contestsResponse.json();
+        var totalIndexed = 0; 
+    
+        //Loop through all contests and build a list of the unique draft groups
+        let groupIdList = [];
+        contestsResponse.data.Contests.forEach(contest => {
+            if (!groupIdList.includes(contest.dg)) {
+                groupIdList.push(contest.dg)
+            }
         });
+    
+        //For each draft group, grab the draftables by replacing the parameter in the URL with the correct group Id
+        for (const groupId of groupIdList) {
+            console.log('Players for GroupId:')
+            console.log(groupId);
+            console.log('\n')
+    
+            const draftablePlayersResponse = await axios.get('https://api.draftkings.com/draftgroups/v1/draftgroups/' + groupId + '/draftables');
+            //const draftableplayersJson = await draftablePlayersResponse.json();
+            totalIndexed += Object.keys(draftablePlayersResponse.data.draftables).length;
+            //const dataToIndex = draftablePlayersResponse.data.draftables.flatMap(doc => [{ index: {_index: 'dkmlbplayers'}}, doc])
+            const bulkResponse = await client.helpers.bulk({
+                datasource: draftablePlayersResponse.data.draftables,
+                onDocument (doc) {
+                    return {
+                        index: { _index: 'dknbaplayers', _id: doc.PlayerId}
+                    }
+                }
+            })
+            console.log(bulkResponse);
+            const count = await client.count({ index: 'dknbaplayers' })
+            console.log('Documents currently in index', count)
+            console.log('Total Documents that were just indexed', totalIndexed)
+        }
+    
+    } catch (error) {
+        console.log(error);
     }
-
-    console.log('Success! number of docs indexed is:', indexCount);
-
-} catch (error) {
-    console.log(error);
-}
 }
 
 async function getDataPGA() {
     try {
-    //Get the contests
-    const contestsResponse = await fetch('https://www.draftkings.com/lobby/getcontests?sport=GOLF');
-    const contestsJson = await contestsResponse.json();
-    var indexCount = 0; 
-    //Loop through all contests and build a list of the unique draft groups
-    let groupIdList = [];
-    contestsJson['Contests'].forEach(contest => {
-        if (!groupIdList.includes(contest['dg']) && contest['gameType'] == "Classic") {
-            groupIdList.push(contest['dg'])
-        }
-        console.log(contest['n']);
-    });
-
-    //For each draft group, grab the draftables by replacing the parameter in the URL with the correct group Id
-    for (const groupId of groupIdList) {
-        console.log('Players for GroupId:')
-        console.log(groupId);
-
-        console.log('\n')
-
-        const draftablePlayersResponse = await fetch('https://api.draftkings.com/draftgroups/v1/draftgroups/' + groupId + '/draftables');
-        const draftableplayersJson = await draftablePlayersResponse.json();
-
-        //Nice! Now we have the players so let's just console.log them as a simple example
-        draftableplayersJson['draftables'].forEach(async player => { 
-            await client.index({
-                index: 'dkpgaplayers',
-                id: player['draftableId'],
-                body: {
-                    "FirstName": player['firstName'],
-                    "LastName": player['lastName'],
-                    "DisplayName": player['displayName'],
-                    "PlayerId": player['playerId'],
-                    "Position": player['position'],
-                    "Salary": player['salary'],
-                    "Status": player['status'],
-                    "IsSwappable": player['isSwappable'],
-                    "isDisabled": player['isDisabled'],
-                    "Team": player['teamAbbreviation']
-                }
-            }).then(res => {
-                //console.log(res);
-                indexCount++;
-            })
-            .catch(error => {
-                console.error(error); 
-            });
-            
+        //Get the contests
+        const contestsResponse = await axios.get('https://www.draftkings.com/lobby/getcontests?sport=GOLF');
+        //const contestsJson = await contestsResponse.json();
+        var totalIndexed = 0;
+    
+        //Loop through all contests and build a list of the unique draft groups
+        let groupIdList = [];
+        contestsResponse.data.Contests.forEach(contest => {
+            if (!groupIdList.includes(contest.dg)) {
+                groupIdList.push(contest.dg)
+            }
         });
+    
+        //For each draft group, grab the draftables by replacing the parameter in the URL with the correct group Id
+        for (const groupId of groupIdList) {
+            console.log('Players for GroupId:')
+            console.log(groupId);
+            console.log('\n')
+    
+            const draftablePlayersResponse = await axios.get('https://api.draftkings.com/draftgroups/v1/draftgroups/' + groupId + '/draftables');
+            //const draftableplayersJson = await draftablePlayersResponse.json();
+            totalIndexed += Object.keys(draftablePlayersResponse.data.draftables).length;
+            //const dataToIndex = draftablePlayersResponse.data.draftables.flatMap(doc => [{ index: {_index: 'dkmlbplayers'}}, doc])
+            const bulkResponse = await client.helpers.bulk({
+                datasource: draftablePlayersResponse.data.draftables,
+                onDocument (doc) {
+                    return {
+                        index: { _index: 'dkpgaplayers', _id: doc.PlayerId}
+                    }
+                }
+            })
+            console.log(bulkResponse);
+            const count = await client.count({ index: 'dkpgaplayers' })
+            console.log('Documents currently in index', count)
+            console.log('Total Documents that were just indexed', totalIndexed)
+        }
+    
+    } catch (error) {
+        console.log(error);
     }
-
-    console.log('Success! number of docs indexed is:', indexCount);
-
-} catch (error) {
-    console.log(error);
-}
 }
 
-getDataPGA().catch(console.log);
+getDataMLB().catch(console.log);
 
